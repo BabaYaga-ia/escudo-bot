@@ -177,14 +177,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_histories[user_id] = []
     registered_users.add(user_id)
 
-    # Programar mensaje matutino cada día a las 9:00
-    context.job_queue.run_daily(
-        send_morning_message,
-        time=datetime.strptime("09:00", "%H:%M").time(),
-        data=user_id,
-        name=str(user_id)
-    )
-
     await update.message.reply_text(
         "Hola. Soy ESCUDO. No soy un psicólogo ni un asesor financiero. "
         "Soy una herramienta que trabaja por ti cuando lo necesitas. "
@@ -242,7 +234,12 @@ async def reset(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("De acuerdo. ¿Por dónde quieres empezar?")
 
 def main():
-    app = Application.builder().token(TELEGRAM_TOKEN).build()
+    app = (
+        Application.builder()
+        .token(TELEGRAM_TOKEN)
+        .job_queue(None)
+        .build()
+    )
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("reset", reset))
     app.add_handler(MessageHandler(filters.VOICE, handle_voice))
