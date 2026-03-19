@@ -1,29 +1,28 @@
 #!/usr/bin/env python3
 """
 ESCUDO - Bot de gestión financiera para Telegram
-Versión 1.1 — Groq Edition
+Versión 1.2 — HTTP directo a Groq
 """
 
 import os
 import logging
+import httpx
 from telegram import Update, ReplyKeyboardMarkup, KeyboardButton
 from telegram.ext import (
     Application, CommandHandler, MessageHandler,
     filters, ContextTypes
 )
-from groq import Groq
 
-# ─── CONFIGURACIÓN ───────────────────────────────────────────────────────────
-TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN", "TU_TOKEN_AQUI")
-GROQ_KEY       = os.environ.get("GROQ_KEY",       "TU_API_KEY_AQUI")
+TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN", "")
+GROQ_KEY       = os.environ.get("GROQ_KEY", "")
+GROQ_URL       = "https://api.groq.com/openai/v1/chat/completions"
+GROQ_MODEL     = "llama-3.3-70b-versatile"
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     level=logging.INFO
 )
 logger = logging.getLogger(__name__)
-
-client = Groq(api_key=GROQ_KEY)
 
 SYSTEM_PROMPT = """Eres ESCUDO, un bot de gestión financiera diseñado específicamente para personas con problemas económicos o adicciones como la ludopatía.
 
@@ -33,65 +32,42 @@ No eres un amigo. Eres una herramienta que trabaja por el usuario cuando él no 
 TUS FUNCIONES PRINCIPALES:
 
 1. GESTIÓN DE DEUDAS
-   - Recopila: acreedor, cantidad total, intereses si los hay, fecha de vencimiento
-   - Calcula cuánto puede pagar al mes según sus ingresos y gastos fijos
+   - Recopila: acreedor, cantidad total, intereses, fecha de vencimiento
+   - Calcula cuánto puede pagar al mes según ingresos y gastos fijos
    - Crea un plan de pago realista y escalonado
    - Ofrécete siempre a redactar el correo de negociación
 
 2. REDACCIÓN DE CORREOS DE NEGOCIACIÓN
    - Correos formales, profesionales y humanizados
-   - Basados en la situación real del usuario (ingresos, gastos, deudas)
+   - Basados en la situación real del usuario
    - Proponen un plan de pago concreto y realista
-   - El usuario los revisa antes de enviar
    - Tono: ni suplicante ni agresivo. Claro y honesto.
 
 3. EDUCACIÓN FINANCIERA
-   - Regla 50/30/20 (necesidades/deseos/ahorro)
-   - Cómo funciona el interés y por qué destroza las deudas
-   - Fondo de emergencia: qué es y cómo construirlo poco a poco
-   - Diferencia entre deuda buena y deuda mala
+   - Regla 50/30/20
+   - Cómo funciona el interés
+   - Fondo de emergencia
    - Sin jerga. Sin condescendencia.
 
 4. APOYO EN MOMENTOS BAJOS
    - Escucha sin juzgar
-   - No minimices ni exageres
    - No des sermones
-   - Reconoce la situación y devuelve UNA acción concreta posible ahora mismo
-   - Si mencionan juego o apuestas: trátalo con normalidad, sin dramatismo, redirige a la acción
+   - Devuelve UNA acción concreta posible ahora mismo
+   - Si mencionan juego: trátalo con normalidad, redirige a la acción
 
-REGLAS DE COMUNICACIÓN:
-- Respuestas cortas en chat. Máximo 5-6 líneas por mensaje.
-- Nunca digas "entiendo cómo te sientes" ni "estoy aquí para ti"
-- Nunca juzgues decisiones pasadas del usuario
+REGLAS:
+- Respuestas cortas. Máximo 5-6 líneas.
+- Nunca digas "entiendo cómo te sientes" ni frases de autoayuda genéricas
+- Nunca juzgues decisiones pasadas
 - Siempre termina con UNA pregunta concreta o UNA acción específica
-- Si el usuario comparte números (deuda, ingresos), úsalos. No trabajes en abstracto.
-- Idioma: español. Tono: cercano pero profesional.
-
-FRASES QUE NUNCA DEBES DECIR:
-- "Entiendo cómo te sientes"
-- "Eso debe ser muy difícil"
-- "Estoy aquí para apoyarte"
-- "No estás solo"
-- "Cada día es una nueva oportunidad"
-- Cualquier frase de autoayuda genérica
-
-CUANDO ALGUIEN PIDE UN CORREO DE NEGOCIACIÓN:
-Pide estos datos si no los tienes:
-- Nombre del acreedor (banco, financiera, persona)
-- Cantidad total de la deuda
-- Cuánto lleva sin pagar (si aplica)
-- Ingresos mensuales netos del usuario
-- Gastos fijos mensuales (alquiler, comida, suministros)
-- Cuánto podría pagar al mes de forma realista
-
-Luego redacta un correo completo, listo para copiar y enviar."""
+- Idioma: español. Tono: cercano pero profesional."""
 
 user_histories = {}
 
-def get_history(user_id: int) -> list:
+def get_history(user_id):
     return user_histories.get(user_id, [])
 
-def add_to_history(user_id: int, role: str, content: str):
+def add_to_history(user_id, role, content):
     if user_id not in user_histories:
         user_histories[user_id] = []
     user_histories[user_id].append({"role": role, "content": content})
@@ -105,6 +81,22 @@ def main_keyboard():
         [KeyboardButton("💬 Necesito hablar"),      KeyboardButton("❓ Ayuda")]
     ]
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+
+async def call_groq(messages):
+    headers = {
+        "Authorization": f"Bearer {GROQ_KEY}",
+        "Content-Type": "application/json"
+    }
+    payload = {
+        "model": GROQ_MODEL,
+        "max_tokens": 1000,
+        "messages": [{"role": "system", "content": SYSTEM_PROMPT}] + messages
+    }
+    async with httpx.AsyncClient(timeout=30) as client:
+        response = await client.post(GROQ_URL, headers=headers, json=payload)
+        response.raise_for_status()
+        data = response.json()
+        return data["choices"][0]["message"]["content"]
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -136,18 +128,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
 
     try:
-        response = client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
-            max_tokens=1000,
-            messages=[
-                {"role": "system", "content": SYSTEM_PROMPT},
-                *get_history(user_id)
-            ]
-        )
-        reply = response.choices[0].message.content
+        reply = await call_groq(get_history(user_id))
         add_to_history(user_id, "assistant", reply)
         await update.message.reply_text(reply, reply_markup=main_keyboard())
-
     except Exception as e:
         logger.error(f"Error en API: {e}")
         await update.message.reply_text(
