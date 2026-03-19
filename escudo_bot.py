@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
 """
 ESCUDO - Bot de gestión financiera para Telegram
-Versión 2.0 — Agente conversacional con voz
+Versión 2.1 — Edge TTS (voz Microsoft natural)
 """
 
 import os
 import logging
 import httpx
 import tempfile
-from gtts import gTTS
+import asyncio
+import edge_tts
 from telegram import Update
 from telegram.ext import (
     Application, CommandHandler, MessageHandler,
@@ -21,6 +22,11 @@ GROQ_CHAT_URL  = "https://api.groq.com/openai/v1/chat/completions"
 GROQ_AUDIO_URL = "https://api.groq.com/openai/v1/audio/transcriptions"
 GROQ_MODEL     = "llama-3.3-70b-versatile"
 WHISPER_MODEL  = "whisper-large-v3"
+
+# Voz en español — opciones disponibles:
+# Masculina: es-ES-AlvaroNeural, es-MX-JorgeNeural
+# Femenina:  es-ES-ElviraNeural, es-MX-DaliaNeural
+VOICE = "es-ES-AlvaroNeural"
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -115,10 +121,11 @@ async def transcribe_audio(audio_bytes, filename):
         response.raise_for_status()
         return response.json()["text"]
 
-def text_to_audio(text):
-    tts = gTTS(text=text, lang="es", slow=False)
+async def text_to_audio(text):
     tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".mp3")
-    tts.save(tmp.name)
+    tmp.close()
+    communicate = edge_tts.Communicate(text, VOICE)
+    await communicate.save(tmp.name)
     return tmp.name
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -163,7 +170,7 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         add_to_history(user_id, "assistant", reply)
 
         await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="record_voice")
-        audio_file = text_to_audio(reply)
+        audio_file = await text_to_audio(reply)
 
         with open(audio_file, "rb") as af:
             await update.message.reply_voice(voice=af)
@@ -185,7 +192,7 @@ def main():
     app.add_handler(CommandHandler("reset", reset))
     app.add_handler(MessageHandler(filters.VOICE, handle_voice))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
-    logger.info("ESCUDO v2.0 arrancando...")
+    logger.info("ESCUDO v2.1 arrancando...")
     app.run_polling(allowed_updates=Update.ALL_TYPES)
 
 if __name__ == "__main__":
