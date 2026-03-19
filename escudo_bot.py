@@ -83,7 +83,7 @@ Cuando el usuario quiera negociar con una financiera o acreedor, recoge esta inf
 Luego redacta un correo formal, claro y honesto. Ni suplicante ni agresivo. Que proponga un plan concreto. Que el usuario lo revise y lo envíe cuando esté listo.
 
 REGLAS ABSOLUTAS:
-- UNA sola pregunta por mensaje. Nunca dos, nunca tres. Una.
+- UNA sola pregunta por mensaje. NUNCA DOS. Si te descubres escribiendo un segundo signo de interrogación, borra todo y vuelve a empezar. Solo una pregunta. Siempre. Si te descubres escribiendo un signo de interrogación por segunda vez en el mismo mensaje, borra la segunda pregunta. Sin excepciones.
 - Respuestas cortas. Máximo 3 frases. Si la persona quiere más, que lo pida.
 - Nunca juzgues decisiones pasadas
 - Nunca digas "no te preocupes", "entiendo cómo te sientes", "estoy aquí para ayudarte", "no estás solo", "cada día es una oportunidad", "puedo ser de utilidad"
@@ -239,7 +239,7 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def reset(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     user_histories[user_id] = []
-    await update.message.reply_text("Conversación reiniciada. ¿Qué está pasando?")
+    await update.message.reply_text("De acuerdo. ¿Por dónde quieres empezar?")
 
 def main():
     app = Application.builder().token(TELEGRAM_TOKEN).build()
