@@ -11,15 +11,20 @@ import tempfile
 import asyncpg
 from gtts import gTTS
 from datetime import datetime
+from aiohttp import web
 from telegram import Update
 from telegram.ext import (
     Application, CommandHandler, MessageHandler,
     filters, ContextTypes
 )
 
-TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN", "")
-GROQ_KEY       = os.environ.get("GROQ_KEY", "")
-DATABASE_URL   = os.environ.get("DATABASE_URL", "")
+TELEGRAM_TOKEN        = os.environ.get("TELEGRAM_TOKEN", "")
+GROQ_KEY              = os.environ.get("GROQ_KEY", "")
+DATABASE_URL          = os.environ.get("DATABASE_URL", "")
+TWILIO_ACCOUNT_SID    = os.environ.get("TWILIO_ACCOUNT_SID", "")
+TWILIO_AUTH_TOKEN     = os.environ.get("TWILIO_AUTH_TOKEN", "")
+TWILIO_WA_NUMBER      = os.environ.get("TWILIO_WHATSAPP_NUMBER", "")
+PORT                  = int(os.environ.get("PORT", "8080"))
 GROQ_CHAT_URL  = "https://api.groq.com/openai/v1/chat/completions"
 GROQ_AUDIO_URL = "https://api.groq.com/openai/v1/audio/transcriptions"
 GROQ_MODEL     = "llama-3.3-70b-versatile"
@@ -357,12 +362,74 @@ async def reset(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_histories[user_id] = []
     await update.message.reply_text("De acuerdo. ¿Por dónde quieres empezar?")
 
+# ─── WHATSAPP ─────────────────────────────────────────────────────────────────
+
+async def send_whatsapp(to, message):
+    url = f"https://api.twilio.com/2010-04-01/Accounts/{TWILIO_ACCOUNT_SID}/Messages.json"
+    data = {
+        "From": TWILIO_WA_NUMBER,
+        "To": to,
+        "Body": message
+    }
+    auth = (TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
+    async with httpx.AsyncClient() as client:
+        await client.post(url, data=data, auth=auth)
+
+async def whatsapp_webhook(request):
+    form = await request.post()
+    user_wa = form.get("From", "")
+    user_text = form.get("Body", "").strip()
+
+    if not user_wa or not user_text:
+        return web.Response(text="OK")
+
+    user_id = hash(user_wa) % (10**9)
+
+    try:
+        if user_id not in user_histories or len(user_histories[user_id]) == 0:
+            user_histories[user_id] = await db_get_history(user_id)
+            await db_register_user(user_id, user_wa)
+
+        add_to_history(user_id, "user", user_text)
+        await db_save_message(user_id, "user", user_text)
+
+        reply = await call_groq(get_history(user_id))
+        add_to_history(user_id, "assistant", reply)
+        await db_save_message(user_id, "assistant", reply)
+
+        await send_whatsapp(user_wa, reply)
+        await extract_and_save(user_id, user_text, reply)
+
+    except Exception as e:
+        logger.error(f"Error en WhatsApp: {e}")
+        await send_whatsapp(user_wa, "Ha habido un problema técnico. Vuelve a intentarlo.")
+
+    return web.Response(text="OK")
+
 # ─── MAIN ─────────────────────────────────────────────────────────────────────
 
 async def post_init(app):
     await init_db()
 
+import asyncio
+import threading
+
+def run_web():
+    async def _run():
+        wa_app = web.Application()
+        wa_app.router.add_post("/whatsapp", whatsapp_webhook)
+        runner = web.AppRunner(wa_app)
+        await runner.setup()
+        site = web.TCPSite(runner, "0.0.0.0", PORT)
+        await site.start()
+        logger.info(f"Servidor WhatsApp en puerto {PORT}")
+        await asyncio.sleep(float('inf'))
+    asyncio.run(_run())
+
 def main():
+    t = threading.Thread(target=run_web, daemon=True)
+    t.start()
+
     app = (
         Application.builder()
         .token(TELEGRAM_TOKEN)
