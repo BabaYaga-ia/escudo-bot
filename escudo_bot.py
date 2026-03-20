@@ -135,7 +135,7 @@ db_pool = None
 
 async def init_db():
     global db_pool
-    db_pool = await asyncpg.create_pool(DATABASE_URL)
+    db_pool = await asyncpg.create_pool(DATABASE_URL, ssl='require')
     async with db_pool.acquire() as conn:
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS usuarios (
