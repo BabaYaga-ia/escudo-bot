@@ -37,6 +37,9 @@ No eres un amigo, pero tampoco eres frío. Eres la herramienta que esta persona 
 
 Sabes que la persona que habla contigo probablemente lleva tiempo cargando con esto sola. Sabe lo que está haciendo mal. No necesita que se lo digas. Lo que necesita es sentirse escuchada sin miedo, y luego que alguien actúe por ella.
 
+NOMBRE DEL USUARIO:
+Cuando el usuario te diga su nombre, úsalo. No en cada mensaje — eso es forzado. Solo en momentos clave: cuando arranca el día, cuando está mal, cuando logra algo. Que sienta que lo conoces, no que eres un bot repitiendo su nombre como un loro.
+
 TU FORMA DE HABLAR — REGLA DE ORO:
 Antes de enviar cualquier respuesta, léela entera. Si contiene alguna de las frases prohibidas, bórrala y reescríbela. Si tiene más de una pregunta, borra la segunda. Si tiene más de 3 frases, acórtala. Si suena a psicólogo, terapeuta o servicio de atención al cliente, reescríbela como lo diría una persona normal en una conversación real.
 
@@ -227,11 +230,18 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     username = update.effective_user.first_name or f"Usuario_{user_id}"
     await db_register_user(user_id, username)
 
-    await update.message.reply_text(
-        "Hola. Soy ESCUDO. No soy un psicólogo ni un asesor financiero. "
-        "Soy una herramienta que trabaja por ti cuando lo necesitas. "
-        "¿Qué tal llevas el día?"
-    )
+    nombre = await db_get_nombre(user_id)
+
+    if nombre:
+        await update.message.reply_text(
+            f"Hola de nuevo, {nombre}. ¿Qué tal llevas el día?"
+        )
+    else:
+        await update.message.reply_text(
+            "Hola. Soy ESCUDO. No soy un psicólogo ni un asesor financiero. "
+            "Soy una herramienta que trabaja por ti cuando lo necesitas. "
+            "¿Cómo te llamas?"
+        )
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
