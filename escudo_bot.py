@@ -376,16 +376,21 @@ async def send_whatsapp(to, message):
         await client.post(url, data=data, auth=auth)
 
 async def whatsapp_webhook(request):
-    form = await request.post()
-    user_wa = form.get("From", "")
-    user_text = form.get("Body", "").strip()
-
-    if not user_wa or not user_text:
-        return web.Response(text="OK")
-
-    user_id = hash(user_wa) % (10**9)
-
     try:
+        form = await request.post()
+        logger.info(f"WhatsApp webhook recibido: {dict(form)}")
+        
+        user_wa = form.get("From", "")
+        user_text = form.get("Body", "").strip()
+
+        logger.info(f"De: {user_wa} | Mensaje: {user_text}")
+
+        if not user_wa or not user_text:
+            logger.warning("Mensaje vacío o sin remitente")
+            return web.Response(text="OK")
+
+        user_id = abs(hash(user_wa)) % (10**9)
+
         if user_id not in user_histories or len(user_histories[user_id]) == 0:
             user_histories[user_id] = await db_get_history(user_id)
             await db_register_user(user_id, user_wa)
@@ -394,6 +399,8 @@ async def whatsapp_webhook(request):
         await db_save_message(user_id, "user", user_text)
 
         reply = await call_groq(get_history(user_id))
+        logger.info(f"Respuesta generada: {reply[:100]}")
+        
         add_to_history(user_id, "assistant", reply)
         await db_save_message(user_id, "assistant", reply)
 
@@ -401,8 +408,11 @@ async def whatsapp_webhook(request):
         await extract_and_save(user_id, user_text, reply)
 
     except Exception as e:
-        logger.error(f"Error en WhatsApp: {e}")
-        await send_whatsapp(user_wa, "Ha habido un problema técnico. Vuelve a intentarlo.")
+        logger.error(f"Error en WhatsApp: {e}", exc_info=True)
+        try:
+            await send_whatsapp(user_wa, "Ha habido un problema técnico. Vuelve a intentarlo.")
+        except:
+            pass
 
     return web.Response(text="OK")
 
