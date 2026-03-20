@@ -414,7 +414,10 @@ async def whatsapp_webhook(request):
         except:
             pass
 
-    return web.Response(text="OK")
+    return web.Response(
+        text='<?xml version="1.0" encoding="UTF-8"?><Response></Response>',
+        content_type='text/xml'
+    )
 
 # ─── MAIN ─────────────────────────────────────────────────────────────────────
 
