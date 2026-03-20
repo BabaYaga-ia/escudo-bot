@@ -16,15 +16,13 @@ from telegram.ext import (
     filters, ContextTypes, JobQueue
 )
 
-TELEGRAM_TOKEN    = os.environ.get("TELEGRAM_TOKEN", "")
-GROQ_KEY          = os.environ.get("GROQ_KEY", "")
-NOTION_KEY        = os.environ.get("NOTION_KEY", "")
-NOTION_PARENT_ID  = os.environ.get("NOTION_PARENT_ID", "329ef04d31d2809ca8b7e1251a028b61")
-GROQ_CHAT_URL     = "https://api.groq.com/openai/v1/chat/completions"
-GROQ_AUDIO_URL    = "https://api.groq.com/openai/v1/audio/transcriptions"
-NOTION_API_URL    = "https://api.notion.com/v1"
-GROQ_MODEL        = "llama-3.3-70b-versatile"
-WHISPER_MODEL     = "whisper-large-v3"
+TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN", "")
+GROQ_KEY       = os.environ.get("GROQ_KEY", "")
+DATABASE_URL   = os.environ.get("DATABASE_URL", "")
+GROQ_CHAT_URL  = "https://api.groq.com/openai/v1/chat/completions"
+GROQ_AUDIO_URL = "https://api.groq.com/openai/v1/audio/transcriptions"
+GROQ_MODEL     = "llama-3.3-70b-versatile"
+WHISPER_MODEL  = "whisper-large-v3"
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -226,15 +224,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_histories[user_id] = []
     registered_users.add(user_id)
 
-    # Crear página en Notion si no existe
-    if user_id not in notion_user_pages and NOTION_KEY:
-        try:
-            username = update.effective_user.first_name or f"Usuario_{user_id}"
-            page_id = await create_user_page(user_id, username)
-            notion_user_pages[user_id] = page_id
-            logger.info(f"Página Notion creada para {username}")
-        except Exception as e:
-            logger.error(f"Error creando página Notion: {e}")
+    username = update.effective_user.first_name or f"Usuario_{user_id}"
+    await db_register_user(user_id, username)
 
     await update.message.reply_text(
         "Hola. Soy ESCUDO. No soy un psicólogo ni un asesor financiero. "
@@ -246,16 +237,20 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     user_text = update.message.text
 
+    await db_save_message(user_id, "user", user_text)
     add_to_history(user_id, "user", user_text)
     await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
 
     try:
+        # Cargar historial de DB si no está en memoria
+        if user_id not in user_histories or len(user_histories[user_id]) <= 1:
+            user_histories[user_id] = await db_get_history(user_id)
+
         reply = await call_groq(get_history(user_id))
         add_to_history(user_id, "assistant", reply)
+        await db_save_message(user_id, "assistant", reply)
         await update.message.reply_text(reply)
-        # Guardar en Notion en segundo plano
-        if NOTION_KEY:
-            await extract_and_save(user_id, user_text, reply)
+        await extract_and_save(user_id, user_text, reply)
     except Exception as e:
         logger.error(f"Error en texto: {e}")
         await update.message.reply_text("Ha habido un problema técnico. Vuelve a intentarlo.")
