@@ -411,37 +411,36 @@ async def whatsapp_webhook(request):
 async def post_init(app):
     await init_db()
 
-import asyncio
-import threading
+async def main():
+    # Iniciar base de datos
+    await init_db()
 
-def run_web():
-    async def _run():
-        wa_app = web.Application()
-        wa_app.router.add_post("/whatsapp", whatsapp_webhook)
-        runner = web.AppRunner(wa_app)
-        await runner.setup()
-        site = web.TCPSite(runner, "0.0.0.0", PORT)
-        await site.start()
-        logger.info(f"Servidor WhatsApp en puerto {PORT}")
-        await asyncio.sleep(float('inf'))
-    asyncio.run(_run())
+    # Servidor web para WhatsApp
+    wa_app = web.Application()
+    wa_app.router.add_post("/whatsapp", whatsapp_webhook)
+    runner = web.AppRunner(wa_app)
+    await runner.setup()
+    site = web.TCPSite(runner, "0.0.0.0", PORT)
+    await site.start()
+    logger.info(f"Servidor WhatsApp en puerto {PORT}")
 
-def main():
-    t = threading.Thread(target=run_web, daemon=True)
-    t.start()
-
-    app = (
+    # Bot de Telegram
+    tg_app = (
         Application.builder()
         .token(TELEGRAM_TOKEN)
-        .post_init(post_init)
         .build()
     )
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("reset", reset))
-    app.add_handler(MessageHandler(filters.VOICE, handle_voice))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
+    tg_app.add_handler(CommandHandler("start", start))
+    tg_app.add_handler(CommandHandler("reset", reset))
+    tg_app.add_handler(MessageHandler(filters.VOICE, handle_voice))
+    tg_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
+
     logger.info("ESCUDO v4.0 arrancando...")
-    app.run_polling(allowed_updates=Update.ALL_TYPES)
+    async with tg_app:
+        await tg_app.start()
+        await tg_app.updater.start_polling(allowed_updates=Update.ALL_TYPES)
+        await asyncio.sleep(float('inf'))
 
 if __name__ == "__main__":
-    main()
+    import asyncio
+    asyncio.run(main())
