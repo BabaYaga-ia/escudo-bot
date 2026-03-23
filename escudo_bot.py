@@ -265,6 +265,21 @@ def add_to_history(user_id, role, content):
 # ─── GROQ ─────────────────────────────────────────────────────────────────────
 
 async def call_claude(messages):
+    # Limpiar mensajes vacíos y asegurar alternancia user/assistant
+    clean = [m for m in messages if m.get("content", "").strip()]
+    
+    # Claude requiere que empiece con user y alterne correctamente
+    filtered = []
+    last_role = None
+    for m in clean:
+        if m["role"] != last_role:
+            filtered.append(m)
+            last_role = m["role"]
+    
+    # Si está vacío o empieza con assistant, añadir mensaje inicial
+    if not filtered or filtered[0]["role"] != "user":
+        filtered = [{"role": "user", "content": "Hola"}] + filtered
+
     headers = {
         "x-api-key": ANTHROPIC_KEY,
         "anthropic-version": "2023-06-01",
@@ -274,7 +289,7 @@ async def call_claude(messages):
         "model": ANTHROPIC_MODEL,
         "max_tokens": 1024,
         "system": SYSTEM_PROMPT,
-        "messages": messages
+        "messages": filtered
     }
     async with httpx.AsyncClient(timeout=30) as client:
         response = await client.post(ANTHROPIC_URL, headers=headers, json=payload)
