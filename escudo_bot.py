@@ -360,9 +360,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     nombre = await db_get_nombre(user_id)
 
     if nombre:
-        await update.message.reply_text(
-            f"Hola de nuevo, {nombre}. ¿Qué tal llevas el día?"
-        )
+        # Usuario conocido — cargar historial y saludo simple
+        user_histories[user_id] = await db_get_history(user_id)
+        await update.message.reply_text(f"Hola de nuevo, {nombre}.")
     else:
         await update.message.reply_text(
             "Hola. Soy ESCUDO. No soy un psicólogo ni un asesor financiero. "
