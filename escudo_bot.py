@@ -293,6 +293,8 @@ async def call_claude(messages):
     }
     async with httpx.AsyncClient(timeout=30) as client:
         response = await client.post(ANTHROPIC_URL, headers=headers, json=payload)
+        if response.status_code != 200:
+            logger.error(f"Claude error {response.status_code}: {response.text}")
         response.raise_for_status()
         return response.json()["content"][0]["text"]
 
