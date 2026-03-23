@@ -9,6 +9,7 @@ import logging
 import httpx
 import tempfile
 import asyncpg
+import asyncio
 from gtts import gTTS
 from datetime import datetime
 from aiohttp import web
@@ -251,6 +252,7 @@ async def extract_and_save(user_id, user_text, bot_reply):
 # ─── CONVERSACIÓN EN MEMORIA ──────────────────────────────────────────────────
 
 user_histories = {}
+registered_users = set()
 
 def get_history(user_id):
     return user_histories.get(user_id, [])
@@ -321,6 +323,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     username = update.effective_user.first_name or f"Usuario_{user_id}"
     await db_register_user(user_id, username)
+    registered_users.add(user_id)
     nombre = await db_get_nombre(user_id)
 
     if nombre:
@@ -394,6 +397,49 @@ async def reset(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     user_histories[user_id] = []
     await update.message.reply_text("De acuerdo. ¿Por dónde quieres empezar?")
+
+
+# --- MENSAJES MATUTINOS ------------------------------------------------------
+
+MORNING_PROMPT = (
+    "Es por la manana. Manda el primer mensaje del dia a esta persona. "
+    "Revisa el historial. Si menciono algo concreto arranca desde ahi. "
+    "Si no hay historial: Buenos dias. Que tal has amanecido? "
+    "Una o dos frases maxima. Sin consejos. Sin recordatorios financieros. "
+    "Que parezca que te acordaste de el, no un mensaje automatico."
+)
+
+async def send_morning_messages(bot):
+    for user_id in list(registered_users):
+        try:
+            history = await db_get_history(user_id)
+            messages = history + [{"role": "user", "content": MORNING_PROMPT}]
+            clean = [m for m in messages if m.get("content", "").strip()]
+            filtered = []
+            last_role = None
+            for m in clean:
+                if m["role"] != last_role:
+                    filtered.append(m)
+                    last_role = m["role"]
+            if not filtered or filtered[0]["role"] != "user":
+                filtered = [{"role": "user", "content": MORNING_PROMPT}]
+            reply = await call_claude(filtered)
+            await bot.send_message(chat_id=user_id, text=reply)
+            logger.info(f"Mensaje matutino enviado a {user_id}")
+        except Exception as e:
+            logger.error(f"Error mensaje matutino {user_id}: {e}")
+
+async def morning_scheduler(bot):
+    while True:
+        now = datetime.now()
+        target = now.replace(hour=9, minute=0, second=0, microsecond=0)
+        if now >= target:
+            from datetime import timedelta
+            target = target + timedelta(days=1)
+        wait_seconds = (target - now).total_seconds()
+        logger.info(f"Proximo mensaje matutino en {wait_seconds/3600:.1f} horas")
+        await asyncio.sleep(wait_seconds)
+        await send_morning_messages(bot)
 
 # ─── WHATSAPP ─────────────────────────────────────────────────────────────────
 
@@ -485,8 +531,8 @@ async def main():
     async with tg_app:
         await tg_app.start()
         await tg_app.updater.start_polling(allowed_updates=Update.ALL_TYPES)
+        asyncio.create_task(morning_scheduler(tg_app.bot))
         await asyncio.sleep(float('inf'))
 
 if __name__ == "__main__":
-    import asyncio
     asyncio.run(main())
