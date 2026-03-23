@@ -249,10 +249,14 @@ async def extract_and_save(user_id, user_text, bot_reply):
             await db_save_memoria(user_id, "habito", user_text[:200])
         if any(k in text_lower for k in keywords_emotional):
             await db_save_memoria(user_id, "emocional", user_text[:200])
-        if "¿cómo te llamas?" in bot_reply.lower():
-            nombre = user_text.strip().split()[0].capitalize()
-            if len(nombre) > 1:
-                await db_save_nombre(user_id, nombre)
+        name_triggers = ["llamas", "nombre", "como te llamas"]
+        if any(t in bot_reply.lower() for t in name_triggers):
+            words = user_text.strip().split()
+            if len(words) <= 2:
+                nombre = words[0].capitalize()
+                if len(nombre) > 1 and nombre.isalpha():
+                    await db_save_nombre(user_id, nombre)
+                    logger.info(f"Nombre guardado: {nombre}")
     except Exception as e:
         logger.error(f"Error guardando memoria: {e}")
 
