@@ -372,7 +372,6 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
 
     try:
-        # Cargar historial de DB si no está en memoria
         if user_id not in user_histories or len(user_histories[user_id]) == 0:
             user_histories[user_id] = await db_get_history(user_id)
 
@@ -382,7 +381,24 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply = await call_claude(get_history(user_id))
         add_to_history(user_id, "assistant", reply)
         await db_save_message(user_id, "assistant", reply)
-        await update.message.reply_text(reply)
+
+        # Detectar si el usuario pide audio
+        audio_keywords = ["audio", "voz", "escuchar", "nota de voz", "háblame", "hablame", "dímelo", "dimelo"]
+        wants_audio = any(k in user_text.lower() for k in audio_keywords)
+
+        if wants_audio and ELEVENLABS_KEY:
+            try:
+                await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="record_voice")
+                audio_file = await text_to_audio(reply)
+                with open(audio_file, "rb") as af:
+                    await update.message.reply_voice(voice=af)
+                os.unlink(audio_file)
+            except Exception as e:
+                logger.error(f"Error enviando audio: {e}")
+                await update.message.reply_text(reply)
+        else:
+            await update.message.reply_text(reply)
+
         await extract_and_save(user_id, user_text, reply)
 
     except Exception as e:
