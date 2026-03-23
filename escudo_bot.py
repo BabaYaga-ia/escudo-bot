@@ -19,15 +19,16 @@ from telegram.ext import (
 )
 
 TELEGRAM_TOKEN        = os.environ.get("TELEGRAM_TOKEN", "")
+ANTHROPIC_KEY         = os.environ.get("ANTHROPIC_KEY", "")
 GROQ_KEY              = os.environ.get("GROQ_KEY", "")
 DATABASE_URL          = os.environ.get("DATABASE_URL", "")
 TWILIO_ACCOUNT_SID    = os.environ.get("TWILIO_ACCOUNT_SID", "")
 TWILIO_AUTH_TOKEN     = os.environ.get("TWILIO_AUTH_TOKEN", "")
 TWILIO_WA_NUMBER      = os.environ.get("TWILIO_WHATSAPP_NUMBER", "")
 PORT                  = int(os.environ.get("PORT", "8080"))
-GROQ_CHAT_URL  = "https://api.groq.com/openai/v1/chat/completions"
+ANTHROPIC_URL  = "https://api.anthropic.com/v1/messages"
+ANTHROPIC_MODEL = "claude-sonnet-4-20250514"
 GROQ_AUDIO_URL = "https://api.groq.com/openai/v1/audio/transcriptions"
-GROQ_MODEL     = "llama-3.3-70b-versatile"
 WHISPER_MODEL  = "whisper-large-v3"
 
 logging.basicConfig(
@@ -263,20 +264,22 @@ def add_to_history(user_id, role, content):
 
 # ─── GROQ ─────────────────────────────────────────────────────────────────────
 
-async def call_groq(messages):
+async def call_claude(messages):
     headers = {
-        "Authorization": f"Bearer {GROQ_KEY}",
+        "x-api-key": ANTHROPIC_KEY,
+        "anthropic-version": "2023-06-01",
         "Content-Type": "application/json"
     }
     payload = {
-        "model": GROQ_MODEL,
-        "max_tokens": 1000,
-        "messages": [{"role": "system", "content": SYSTEM_PROMPT}] + messages
+        "model": ANTHROPIC_MODEL,
+        "max_tokens": 1024,
+        "system": SYSTEM_PROMPT,
+        "messages": messages
     }
     async with httpx.AsyncClient(timeout=30) as client:
-        response = await client.post(GROQ_CHAT_URL, headers=headers, json=payload)
+        response = await client.post(ANTHROPIC_URL, headers=headers, json=payload)
         response.raise_for_status()
-        return response.json()["choices"][0]["message"]["content"]
+        return response.json()["content"][0]["text"]
 
 async def transcribe_audio(audio_bytes, filename):
     headers = {"Authorization": f"Bearer {GROQ_KEY}"}
@@ -328,7 +331,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         add_to_history(user_id, "user", user_text)
         await db_save_message(user_id, "user", user_text)
 
-        reply = await call_groq(get_history(user_id))
+        reply = await call_claude(get_history(user_id))
         add_to_history(user_id, "assistant", reply)
         await db_save_message(user_id, "assistant", reply)
         await update.message.reply_text(reply)
@@ -355,7 +358,7 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         add_to_history(user_id, "user", transcription)
         await db_save_message(user_id, "user", transcription)
 
-        reply = await call_groq(get_history(user_id))
+        reply = await call_claude(get_history(user_id))
         add_to_history(user_id, "assistant", reply)
         await db_save_message(user_id, "assistant", reply)
 
@@ -411,7 +414,7 @@ async def whatsapp_webhook(request):
         add_to_history(user_id, "user", user_text)
         await db_save_message(user_id, "user", user_text)
 
-        reply = await call_groq(get_history(user_id))
+        reply = await call_claude(get_history(user_id))
         logger.info(f"Respuesta generada: {reply[:100]}")
         
         add_to_history(user_id, "assistant", reply)
