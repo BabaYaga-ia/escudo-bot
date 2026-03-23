@@ -27,10 +27,12 @@ TWILIO_ACCOUNT_SID    = os.environ.get("TWILIO_ACCOUNT_SID", "")
 TWILIO_AUTH_TOKEN     = os.environ.get("TWILIO_AUTH_TOKEN", "")
 TWILIO_WA_NUMBER      = os.environ.get("TWILIO_WHATSAPP_NUMBER", "")
 PORT                  = int(os.environ.get("PORT", "8080"))
-ANTHROPIC_URL  = "https://api.anthropic.com/v1/messages"
-ANTHROPIC_MODEL = "claude-sonnet-4-20250514"
-GROQ_AUDIO_URL = "https://api.groq.com/openai/v1/audio/transcriptions"
-WHISPER_MODEL  = "whisper-large-v3"
+ANTHROPIC_URL    = "https://api.anthropic.com/v1/messages"
+ANTHROPIC_MODEL  = "claude-sonnet-4-20250514"
+GROQ_AUDIO_URL   = "https://api.groq.com/openai/v1/audio/transcriptions"
+WHISPER_MODEL    = "whisper-large-v3"
+ELEVENLABS_KEY   = os.environ.get("ELEVENLABS_KEY", "")
+ELEVENLABS_VOICE = "ErXwobaYiN019PkySvjV"  # Antoni
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -309,7 +311,33 @@ async def transcribe_audio(audio_bytes, filename):
         response.raise_for_status()
         return response.json()["text"]
 
-def text_to_audio(text):
+async def text_to_audio(text):
+    if ELEVENLABS_KEY:
+        try:
+            url = f"https://api.elevenlabs.io/v1/text-to-speech/{ELEVENLABS_VOICE}"
+            headers = {
+                "xi-api-key": ELEVENLABS_KEY,
+                "Content-Type": "application/json"
+            }
+            payload = {
+                "text": text,
+                "model_id": "eleven_multilingual_v2",
+                "voice_settings": {
+                    "stability": 0.5,
+                    "similarity_boost": 0.75
+                }
+            }
+            async with httpx.AsyncClient(timeout=30) as client:
+                response = await client.post(url, headers=headers, json=payload)
+                response.raise_for_status()
+                tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".mp3")
+                tmp.write(response.content)
+                tmp.close()
+                return tmp.name
+        except Exception as e:
+            logger.error(f"Error ElevenLabs: {e}, usando gTTS")
+
+    # Fallback a gTTS si ElevenLabs falla
     tts = gTTS(text=text, lang="es", tld="es", slow=False)
     tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".mp3")
     tts.save(tmp.name)
@@ -383,7 +411,7 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await db_save_message(user_id, "assistant", reply)
 
         await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="record_voice")
-        audio_file = text_to_audio(reply)
+        audio_file = await text_to_audio(reply)
         with open(audio_file, "rb") as af:
             await update.message.reply_voice(voice=af)
         os.unlink(audio_file)
