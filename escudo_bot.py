@@ -384,6 +384,18 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if user_id not in user_histories or len(user_histories[user_id]) == 0:
             user_histories[user_id] = await db_get_history(user_id)
 
+        # Detectar si el bot acaba de preguntar el nombre y guardar la respuesta
+        nombre_actual = await db_get_nombre(user_id)
+        if not nombre_actual:
+            history = get_history(user_id)
+            last_bot_msg = next((m["content"] for m in reversed(history) if m["role"] == "assistant"), "")
+            if any(t in last_bot_msg.lower() for t in ["llamas", "nombre"]):
+                words = user_text.strip().split()
+                if len(words) <= 2 and words[0].isalpha():
+                    nombre = words[0].capitalize()
+                    await db_save_nombre(user_id, nombre)
+                    logger.info(f"Nombre guardado directamente: {nombre}")
+
         add_to_history(user_id, "user", user_text)
         await db_save_message(user_id, "user", user_text)
 
